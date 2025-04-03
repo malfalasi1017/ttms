@@ -1,27 +1,19 @@
-# sv
+# TTMS
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A Svelte-based traffic ticket management system project.
 
-## Creating a project
+## Getting Started
 
-If you're seeing this, you've probably already done this step. Congrats!
-
-```bash
-# create a new project in the current directory
-npx sv create
-
-# create a new project in my-app
-npx sv create my-app
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+To get the project running locally, follow these simple steps:
 
 ```bash
+# Install dependencies
+npm i
+
+# Start the development server
 npm run dev
 
-# or start the server and open the app in a new browser tab
+# Optionally, open in a browser automatically
 npm run dev -- --open
 ```
 
