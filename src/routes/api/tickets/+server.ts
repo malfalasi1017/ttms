@@ -1,14 +1,14 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { tickets, type NewTicket, type ticketStatusEnum } from '$lib/server/db/schema';
+import { tickets, type NewTicket, type Ticket, ticketStatusEnum } from '$lib/server/db/schema';
 
-// POST /api/tickets Create a new ticket
+import { eq, like, or, and, asc, desc, sql, type SQL } from 'drizzle-orm';
+
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
 
-		// Validate the request body
 		if (
 			!body.licensePlate ||
 			!body.driverName ||
@@ -19,16 +19,22 @@ export const POST: RequestHandler = async ({ request }) => {
 			throw error(400, 'Missing required ticket fields');
 		}
 
-		// Ensure amount is a number
+		if (!ticketStatusEnum.enumValues.includes(body.status)) {
+			throw error(
+				400,
+				`Invalid status value. Must be one of: ${ticketStatusEnum.enumValues.join(', ')}`
+			);
+		}
+
 		const fineAmount = parseInt(body.fineAmount, 10);
-		if (isNaN(fineAmount)) {
-			throw error(400, 'Invalid fineAmount. Must be a number.');
+		if (isNaN(fineAmount) || fineAmount < 0) {
+			throw error(400, 'Invalid fineAmount. Must be a non-negative number.');
 		}
 
 		const newTicketData: NewTicket = {
-			licensePlate: body.licensePlate,
-			driverName: body.driverName,
-			violationType: body.violationType,
+			licensePlate: body.licensePlate.trim(),
+			driverName: body.driverName.trim(),
+			violationType: body.violationType.trim(),
 			fineAmount: fineAmount,
 			dateIssued: body.dateIssued ? new Date(body.dateIssued) : new Date(),
 			status: body.status
@@ -44,23 +50,75 @@ export const POST: RequestHandler = async ({ request }) => {
 	} catch (e: any) {
 		console.error('Error creating ticket:', e);
 
-		if (e.status >= 400 && e.status < 600) {
+		if (e && typeof e === 'object' && 'status' in e && typeof e.status === 'number') {
 			throw e;
 		}
 
-		throw error(500, 'Internal Server Error');
+		throw error(500, 'Internal Server Error creating ticket');
 	}
 };
 
 export const GET: RequestHandler = async ({ url }) => {
 	try {
-		const allTicket = await db.query.tickets.findMany({
-			orderBy: (tickets, { desc }) => [desc(tickets.dateIssued)]
+		const searchParams = url.searchParams;
+		const query = searchParams.get('query')?.trim();
+		const status = searchParams.get('status');
+		const sortBy = searchParams.get('sortBy') || 'dateIssued';
+		const sortOrder = searchParams.get('sortOrder') || 'desc';
+
+		const conditions: SQL[] = [];
+
+		if (query) {
+			const lowerCaseQuery = query.toLowerCase();
+			conditions.push(
+				or(
+					like(sql<string>`LOWER(${tickets.licensePlate})`, `%${lowerCaseQuery}%`),
+					like(sql<string>`LOWER(${tickets.driverName})`, `%${lowerCaseQuery}%`)
+				)!
+			);
+		}
+
+		if (
+			status &&
+			ticketStatusEnum.enumValues.includes(status as (typeof ticketStatusEnum.enumValues)[number])
+		) {
+			conditions.push(eq(tickets.status, status as (typeof ticketStatusEnum.enumValues)[number]));
+		} else if (status) {
+			console.warn(`Invalid status value received: ${status}`);
+		}
+
+		const whereCondition = conditions.length > 0 ? and(...conditions) : undefined;
+
+		let orderByClause;
+		const sortFunction = sortOrder === 'asc' ? asc : desc;
+
+		switch (sortBy) {
+			case 'fineAmount':
+				orderByClause = sortFunction(tickets.fineAmount);
+				break;
+			case 'licensePlate':
+				orderByClause = sortFunction(tickets.licensePlate);
+				break;
+			case 'driverName':
+				orderByClause = sortFunction(tickets.driverName);
+				break;
+			case 'status':
+				orderByClause = sortFunction(tickets.status);
+				break;
+			case 'dateIssued':
+			default:
+				orderByClause = sortFunction(tickets.dateIssued);
+				break;
+		}
+
+		const fetchedTickets = await db.query.tickets.findMany({
+			where: whereCondition,
+			orderBy: [orderByClause]
 		});
 
-		return json(allTicket);
+		return json(fetchedTickets);
 	} catch (e: any) {
 		console.error('Error fetching tickets:', e);
-		throw error(500, 'Internal Server Error');
+		throw error(500, 'Internal Server Error fetching tickets');
 	}
 };
